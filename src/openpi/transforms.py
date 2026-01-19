@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from collections.abc import Callable, Mapping, Sequence
 import dataclasses
 import re
@@ -98,7 +100,22 @@ class RepackTransform(DataTransformFn):
 
     def __call__(self, data: DataDict) -> DataDict:
         flat_item = flatten_dict(data)
-        return jax.tree.map(lambda k: flat_item[k], self.structure)
+
+        def lookup(key: str | Sequence[str]) -> DataDict:
+            if isinstance(key, str):
+                candidates = (key,)
+            elif isinstance(key, Sequence):
+                candidates = tuple(key)
+            else:  # pragma: no cover - defensive programming
+                raise TypeError(f"Unsupported key type: {type(key)!r}")
+
+            for candidate in candidates:
+                if candidate in flat_item:
+                    return flat_item[candidate]
+
+            raise KeyError(f"None of the candidate keys {candidates!r} found in item keys {tuple(flat_item)}")
+
+        return jax.tree.map(lookup, self.structure, is_leaf=lambda x: isinstance(x, (str, tuple, list)))
 
 
 @dataclasses.dataclass(frozen=True)
@@ -308,20 +325,66 @@ class ExtractFASTActions(DataTransformFn):
 
 @dataclasses.dataclass(frozen=True)
 class PromptFromLeRobotTask(DataTransformFn):
-    """Extracts a prompt from the current LeRobot dataset task."""
+    """Injects the natural-language task prompt using dataset metadata.
 
-    # Contains the LeRobot dataset tasks (dataset.meta.tasks).
-    tasks: dict[int, str]
+    The modern LeRobot format stores task metadata in ``meta/tasks.parquet``. When loaded,
+    that file becomes a pandas ``DataFrame`` whose index contains the task strings and whose
+    ``task_index`` column provides the numerical ids seen in the samples. Older versions of
+    OpenPI assumed this metadata was a simple mapping. This transform now normalises either
+    representation so model inputs stay consistent across Lerobot versions.
+    """
+
+    # Contains the LeRobot dataset tasks (dataset.meta.tasks). For legacy datasets this may
+    # be a mapping, for v3 datasets it is a pandas ``DataFrame``.
+    tasks: object
+    _tasks_by_index: Mapping[int, str] = dataclasses.field(init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "_tasks_by_index", self._build_task_lookup(self.tasks))
 
     def __call__(self, data: DataDict) -> DataDict:
         if "task_index" not in data:
             raise ValueError('Cannot extract prompt without "task_index"')
 
         task_index = int(data["task_index"])
-        if (prompt := self.tasks.get(task_index)) is None:
-            raise ValueError(f"{task_index=} not found in task mapping: {self.tasks}")
+
+        prompt = self._tasks_by_index.get(task_index)
+        if prompt is None:
+            raise ValueError(f"task_index={task_index} not found in task mapping: {self.tasks!r}")
 
         return {**data, "prompt": prompt}
+
+    @staticmethod
+    def _build_task_lookup(tasks: object) -> dict[int, str]:
+        if isinstance(tasks, Mapping):
+            return {int(k): str(v) for k, v in tasks.items()}
+
+        try:
+            import pandas as pd
+        except ImportError as exc:  # pragma: no cover - pandas is an install dependency.
+            raise TypeError(
+                "tasks must be a mapping or a pandas DataFrame, but pandas is not installed."
+            ) from exc
+
+        if isinstance(tasks, pd.DataFrame):
+            if "task_index" not in tasks.columns:
+                raise ValueError("tasks DataFrame must include a 'task_index' column")
+
+            df = tasks.reset_index()
+            # After reset_index the first column contains the prompt text, even if the original
+            # index was unnamed.
+            prompt_column = next((col for col in df.columns if col != "task_index"), None)
+            if prompt_column is None:
+                raise ValueError("tasks DataFrame is missing the prompt column")
+
+            lookup: dict[int, str] = {}
+            for row in df.itertuples(index=False):
+                idx = int(getattr(row, "task_index"))
+                prompt = str(getattr(row, prompt_column))
+                lookup[idx] = prompt
+            return lookup
+
+        raise TypeError(f"Unsupported tasks type: {type(tasks)!r}")
 
 
 @dataclasses.dataclass(frozen=True)

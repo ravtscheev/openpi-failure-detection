@@ -16,6 +16,13 @@ def test_repack_transform():
     assert transform(item) == {"a": {"b": 1}, "d": 2}
 
 
+def test_repack_transform_with_fallback():
+    transform = _transforms.RepackTransform(
+        structure={"a": ("missing", "b")}
+    )
+    assert transform({"b": 1}) == {"a": 1}
+
+
 def test_delta_actions():
     item = {"state": np.array([1, 2, 3]), "actions": np.array([[3, 4, 5], [5, 6, 7]])}
 
@@ -116,6 +123,18 @@ def test_extract_prompt_from_task():
 
     data = transform({"task_index": 1})
     assert data["prompt"] == "Hello, world!"
+
+    with pytest.raises(ValueError, match="task_index=2 not found in task mapping"):
+        transform({"task_index": 2})
+
+
+def test_extract_prompt_from_task_dataframe():
+    pd = pytest.importorskip("pandas")
+
+    tasks = pd.DataFrame({"task_index": [0, 1]}, index=["Task zero", "Task one"])
+    transform = _transforms.PromptFromLeRobotTask(tasks)
+
+    assert transform({"task_index": 0})["prompt"] == "Task zero"
 
     with pytest.raises(ValueError, match="task_index=2 not found in task mapping"):
         transform({"task_index": 2})
