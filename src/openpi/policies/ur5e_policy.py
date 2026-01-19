@@ -17,16 +17,22 @@ logger = logging.getLogger("openpi")
 _TARGET_IMAGE_HEIGHT = 224
 _TARGET_IMAGE_WIDTH = 224
 
+
 def make_ur5e_example() -> dict:
     """Creates a random input example for the UR5E policy."""
     return {
-        "observation/exterior_image_1_left": np.random.randint(256, size=(_TARGET_IMAGE_HEIGHT, _TARGET_IMAGE_WIDTH, 3), dtype=np.uint8),
-        "observation/wrist_image_left": np.random.randint(256, size=(_TARGET_IMAGE_HEIGHT, _TARGET_IMAGE_WIDTH, 3), dtype=np.uint8),
+        "observation/exterior_image_1_left": np.random.randint(
+            256, size=(_TARGET_IMAGE_HEIGHT, _TARGET_IMAGE_WIDTH, 3), dtype=np.uint8
+        ),
+        "observation/wrist_image_left": np.random.randint(
+            256, size=(_TARGET_IMAGE_HEIGHT, _TARGET_IMAGE_WIDTH, 3), dtype=np.uint8
+        ),
         "observation/joint_position": np.random.rand(6),
         "observation/gripper_position": np.random.rand(1),
         "prompt": "do something",
     }
-    
+
+
 def _parse_image(image) -> np.ndarray:
     image = np.asarray(image)
     if np.issubdtype(image.dtype, np.floating):
@@ -35,13 +41,13 @@ def _parse_image(image) -> np.ndarray:
         image = einops.rearrange(image, "c h w -> h w c")
     return image
 
+
 @dataclasses.dataclass(frozen=True)
 class UR5Inputs(transforms.DataTransformFn):
     model_type: _model.ModelType
 
     def __call__(self, data: dict) -> dict:
-        """ 
-
+        """
         Args:
             data (dict): Dictionary containing:
                 - "observation/joints": np.ndarray of shape (6,) / (7,) representing joint positions (+ gripper)
@@ -50,33 +56,31 @@ class UR5Inputs(transforms.DataTransformFn):
                 - Optional keys:
                     - "actions": np.ndarray of shape (T, 7) representing action sequences
                     - "prompt": str representing language instruction
-                    - "observation/gripper": np.ndarray of shape (1,) representing gripper state
-                
+                    - "observation/gripper_position": np.ndarray of shape (1,) representing gripper state
 
         Returns:
             dict: _description_
         """
-        
+
         joints = np.asarray(data["observation/joints"])
-        
+
         if joints.ndim != 1:
             raise ValueError(f"Expected joints to be 1D, got shape {joints.shape}")
-        
+
         if "observation/gripper_position" in data:
             gripper_pos = np.asarray(data["observation/gripper_position"])
             if gripper_pos.ndim == 0:
                 # Ensure gripper position is a 1D array, not a scalar, so we can concatenate with joint positions
                 gripper_pos = gripper_pos[np.newaxis]
             state = np.concatenate([joints, gripper_pos])
+        # Gripper position is embedded in the state or missing.
+        elif joints.shape[-1] == 7:
+            state = joints
+        elif joints.shape[-1] == 6:
+            # Append zero placeholder for missing gripper value.
+            state = np.concatenate([joints, np.zeros(1, dtype=joints.dtype)])
         else:
-            # Gripper position is embedded in the state or missing.
-            if joints.shape[-1] == 7:
-                state = joints
-            elif joints.shape[-1] == 6:
-                # Append zero placeholder for missing gripper value.
-                state = np.concatenate([joints, np.zeros(1, dtype=joints.dtype)])
-            else:
-                raise ValueError(f"Unexpected joint/state shape: {joints.shape}")
+            raise ValueError(f"Unexpected joint/state shape: {joints.shape}")
 
         # Possibly need to parse images to uint8 (H,W,C) since LeRobot automatically
         # stores as float32 (C,H,W), gets skipped for policy inference.
@@ -105,9 +109,11 @@ class UR5Inputs(transforms.DataTransformFn):
             inputs["actions"] = np.asarray(data["actions"])
 
         # Pass the prompt (aka language instruction) to the model.
-        if "observation/prompt" in data:
-            inputs["prompt"] = data["observation/prompt"]
-            
+        if "prompt" in data:
+            if isinstance(data["prompt"], bytes):
+                data["prompt"] = data["prompt"].decode("utf-8")
+            inputs["prompt"] = data["prompt"]
+
         logger.debug(f"Inputs: {inputs}")
 
         return inputs
