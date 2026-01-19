@@ -24,12 +24,10 @@ import openpi.policies.ur5e_policy as ur5e_policy
 import openpi.shared.download as _download
 import openpi.shared.normalize as _normalize
 import openpi.training.droid_rlds_dataset as droid_rlds_dataset
-import openpi.training.misc.polaris_config as polaris_config
 import openpi.training.misc.roboarena_config as roboarena_config
 import openpi.training.optimizer as _optimizer
 import openpi.training.weight_loaders as weight_loaders
 import openpi.transforms as _transforms
-
 
 ModelType: TypeAlias = _model.ModelType
 # Work around a tyro issue with using nnx.filterlib.Filter directly.
@@ -97,7 +95,6 @@ class DataConfig:
     # Action space for DROID dataset.
     action_space: droid_rlds_dataset.DroidActionSpace | None = None
     # List of datasets to sample from: name, version, weight, and optionally filter_dict_path
-    datasets: Sequence[droid_rlds_dataset.RLDSDataset] = ()
 
 
 class GroupFactory(Protocol):
@@ -307,8 +304,7 @@ class LeRobotLiberoDataConfig(DataConfigFactory):
                         "observation/base_rgb": "observation.images.camera_base",
                         "observation/wrist_rgb": "observation.images.camera_wrist_right",
                         "observation/joints": "observation.state",
-                        "actions": (
-                            "actions", "actions", "action"),
+                        "actions": ("actions", "action"),
                         "prompt": ("prompt", "task"),
                     }
                 )
@@ -370,16 +366,8 @@ class RLDSDroidDataConfig(DataConfigFactory):
     # Filtering options. Can pass a path to a dictionary that maps episodes to timestep ranges
     # to tuples denoting ranges of time steps to keep (start, end). Episodes are uniquely identified with
     # f"{recording_folderpath}--{file_path}", both of which are present in the RLDS episode metadata.
-
-    # List of datasets to sample from: name, version, weight, and optionally filter_dict_path
-    datasets: Sequence[droid_rlds_dataset.RLDSDataset] = (
-        droid_rlds_dataset.RLDSDataset(
-            name="droid",
-            version="1.0.1",
-            weight=1.0,
-            filter_dict_path="gs://openpi-assets/droid/droid_sample_ranges_v1_0_1.json",
-        ),
-    )
+    # Path to the filter dictionary file.
+    filter_dict_path: str | None = "gs://openpi-assets/droid/droid_sample_ranges_v1_0_1.json"
 
     @override
     def create(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
@@ -422,7 +410,7 @@ class RLDSDroidDataConfig(DataConfigFactory):
             model_transforms=model_transforms,
             rlds_data_dir=self.rlds_data_dir,
             action_space=self.action_space,
-            datasets=self.datasets,
+            filter_dict_path=self.filter_dict_path,
         )
 
 
@@ -463,31 +451,33 @@ class LeRobotDROIDDataConfig(DataConfigFactory):
             data_transforms=data_transforms,
             model_transforms=model_transforms,
         )
-        
-#------------------------------------------------------------------------
+
+
+# ------------------------------------------------------------------------
+
 
 @dataclasses.dataclass(frozen=True)
 class LeRobotUR5DataConfig(DataConfigFactory):
     # If true, will convert joint dimensions to deltas with respect to the current state before passing to the model.
     extra_delta_transform: bool = False
-    # If set, override the default quantile normalization setting based on model type.
-    use_quantile_norm: bool | None = None
+
+    action_sequence_keys: Sequence[str] = ("action",)
 
     @override
     def create(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
-        
         # Boilerplate for remapping keys from the LeRobot dataset. We assume no renaming needed here.
         # The repack transform is *only* applied to the data coming from the dataset,
         # and *not* during inference.
+        # Format is to_key: from_key
         repack_transform = _transforms.Group(
             inputs=[
                 _transforms.RepackTransform(
                     {
-                        "base_rgb": "image",
-                        "wrist_rgb": "wrist_image",
-                        "joints": "joints",
-                        "gripper": "gripper",
-                        "prompt": "prompt",
+                        "observation/base_rgb": "observation.images.camera_base",
+                        "observation/wrist_rgb": "observation.images.camera_wrist_right",
+                        "observation/joints": "observation.state",
+                        "actions": "action",
+                        "prompt": ("prompt", "task"),
                     }
                 )
             ]
@@ -514,17 +504,17 @@ class LeRobotUR5DataConfig(DataConfigFactory):
 
         # We return all data transforms for training and inference. No need to change anything here.
         base_config = self.create_base_config(assets_dirs, model_config)
-        if self.use_quantile_norm is not None:
-            base_config = dataclasses.replace(base_config, use_quantile_norm=self.use_quantile_norm)
-        
+
         return dataclasses.replace(
             base_config,
             repack_transforms=repack_transform,
             data_transforms=data_transforms,
             model_transforms=model_transforms,
+            action_sequence_keys=self.action_sequence_keys,
         )
-        
-#------------------------------------------------------------------------
+
+
+# ------------------------------------------------------------------------
 
 
 @dataclasses.dataclass(frozen=True)
@@ -1032,49 +1022,42 @@ _CONFIGS = [
     ),
     # RoboArena & PolaRiS configs.
     *roboarena_config.get_roboarena_configs(),
-    *polaris_config.get_polaris_configs(),
-    
-    #-----------------------------------------------------------------------
-    
+    # -----------------------------------------------------------------------
     TrainConfig(
-    name="pi0_ur5",
-    model=pi0_config.Pi0Config(paligemma_variant="gemma_2b_lora", action_expert_variant="gemma_300m_lora"),
-    data=LeRobotUR5DataConfig(
-        repo_id="ravtscheev/ur5_dataset",
-        base_config=DataConfig(
-        # This flag determines whether we load the prompt (i.e. the task instruction) from the
-        # ``task`` field in the LeRobot dataset. The recommended setting is True.
-            prompt_from_task=True,
+        name="pi0_ur5",
+        model=pi0_config.Pi0Config(
+            paligemma_variant="gemma_2b_lora", action_expert_variant="gemma_300m_lora", action_horizon=30
         ),
-        # This config lets us reload the UR5 normalization stats from the base model checkpoint.
-        # Reloading normalization stats can help transfer pre-trained models to new environments.
-        # See the [norm_stats.md](../docs/norm_stats.md) file for more details.
-        assets=AssetsConfig(
-            assets_dir="gs://openpi-assets/checkpoints/pi0_base/assets", #TODO: change to own model
-            asset_id="ur5e",
+        data=LeRobotUR5DataConfig(
+            repo_id="ravtscheev/square_ur5e",
+            base_config=DataConfig(
+                # This flag determines whether we load the prompt (i.e. the task instruction) from the
+                # ``task`` field in the LeRobot dataset. The recommended setting is True.
+                prompt_from_task=True,
+            ),
+            # This config lets us reload the UR5 normalization stats from the base model checkpoint.
+            # Reloading normalization stats can help transfer pre-trained models to new environments.
+            # See the [norm_stats.md](../docs/norm_stats.md) file for more details.
+            assets=AssetsConfig(asset_id="ravtscheev/square_ur5e"),
+            extra_delta_transform=False,
         ),
-        extra_delta_transform = False,
-    
+        # Here you define which pre-trained checkpoint you want to load to initialize the model.
+        # This should match the model config you chose above -- i.e. in this case we use the pi0 base model.
+        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi0_base/params"),
+        num_train_steps=30_000,
+        # The freeze filter defines which parameters should be frozen during training.
+        # We have a convenience function in the model config that returns the default freeze filter
+        # for the given model config for LoRA finetuning. Just make sure it matches the model config
+        # you chose above.
+        freeze_filter=pi0_config.Pi0Config(
+            paligemma_variant="gemma_2b_lora", action_expert_variant="gemma_300m_lora"
+        ).get_freeze_filter(),
+        # Turn off EMA for LoRA finetuning.
+        ema_decay=None,
+        keep_period=5_000,
+        # batch_size=24,
     ),
-    # Here you define which pre-trained checkpoint you want to load to initialize the model.
-    # This should match the model config you chose above -- i.e. in this case we use the pi0 base model.
-    weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi0_base/params"),
-    num_train_steps=30_000,
-    # The freeze filter defines which parameters should be frozen during training.
-    # We have a convenience function in the model config that returns the default freeze filter
-    # for the given model config for LoRA finetuning. Just make sure it matches the model config
-    # you chose above.
-    freeze_filter=pi0_config.Pi0Config(
-        paligemma_variant="gemma_2b_lora", action_expert_variant="gemma_300m_lora"
-    ).get_freeze_filter(),
-    # Turn off EMA for LoRA finetuning.
-    ema_decay=None,
-    # keep_period=5_000, # TODO: Look what those parameters do
-    # batch_size=24,
-    ), 
-    
-    #-----------------------------------------------------------------------
-
+    # -----------------------------------------------------------------------
 ]
 
 if len({config.name for config in _CONFIGS}) != len(_CONFIGS):
