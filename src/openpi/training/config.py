@@ -1024,7 +1024,7 @@ _CONFIGS = [
     *roboarena_config.get_roboarena_configs(),
     # -----------------------------------------------------------------------
     TrainConfig(
-        name="pi0_ur5",
+        name="pi0_ur5_square",
         model=pi0_config.Pi0Config(
             paligemma_variant="gemma_2b_lora", action_expert_variant="gemma_300m_lora", action_horizon=30
         ),
@@ -1039,6 +1039,40 @@ _CONFIGS = [
             # Reloading normalization stats can help transfer pre-trained models to new environments.
             # See the [norm_stats.md](../docs/norm_stats.md) file for more details.
             assets=AssetsConfig(asset_id="ravtscheev/square_ur5e"),
+            extra_delta_transform=False,
+        ),
+        # Here you define which pre-trained checkpoint you want to load to initialize the model.
+        # This should match the model config you chose above -- i.e. in this case we use the pi0 base model.
+        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi0_base/params"),
+        num_train_steps=30_000,
+        # The freeze filter defines which parameters should be frozen during training.
+        # We have a convenience function in the model config that returns the default freeze filter
+        # for the given model config for LoRA finetuning. Just make sure it matches the model config
+        # you chose above.
+        freeze_filter=pi0_config.Pi0Config(
+            paligemma_variant="gemma_2b_lora", action_expert_variant="gemma_300m_lora"
+        ).get_freeze_filter(),
+        # Turn off EMA for LoRA finetuning.
+        ema_decay=None,
+        keep_period=5_000,
+        # batch_size=24,
+    ),
+    TrainConfig(
+        name="pi0_ur5_merged",
+        model=pi0_config.Pi0Config(
+            paligemma_variant="gemma_2b_lora", action_expert_variant="gemma_300m_lora", action_horizon=30
+        ),
+        data=LeRobotUR5DataConfig(
+            repo_id="ravtscheev/merged-dataset-UR5e",
+            base_config=DataConfig(
+                # This flag determines whether we load the prompt (i.e. the task instruction) from the
+                # ``task`` field in the LeRobot dataset. The recommended setting is True.
+                prompt_from_task=True,
+            ),
+            # This config lets us reload the UR5 normalization stats from the base model checkpoint.
+            # Reloading normalization stats can help transfer pre-trained models to new environments.
+            # See the [norm_stats.md](../docs/norm_stats.md) file for more details.
+            assets=AssetsConfig(asset_id="ravtscheev/merged-dataset-UR5e"),
             extra_delta_transform=False,
         ),
         # Here you define which pre-trained checkpoint you want to load to initialize the model.
