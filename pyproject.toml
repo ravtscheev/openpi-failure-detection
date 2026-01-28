@@ -129,3 +129,7 @@ build-backend = "hatchling.build"
 [tool.pytest.ini_options]
 markers = ["manual: should be run manually."]
 testpaths = ["src", "scripts", "packages"]
+
+[tool.ty.environment]
+root = ["."]
+python = "./.venv"
