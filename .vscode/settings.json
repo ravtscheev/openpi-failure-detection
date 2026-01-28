@@ -6,13 +6,9 @@
     "python.testing.pytestArgs": [
         "src"
     ],
-    "python-envs.pythonProjects": [
-        {
-            "path": "openpi-failure-detection/.venv",
-            "envManager": "ms-python.python:venv",
-            "packageManager": "ms-python.python:pip"
-        }
-    ],
     "python.testing.unittestEnabled": false,
-    "python.testing.pytestEnabled": true
+    "python.testing.pytestEnabled": true,
+    "ty.interpreter": [
+        "${workspaceFolder}/.venv/bin/python"
+    ],
 }
