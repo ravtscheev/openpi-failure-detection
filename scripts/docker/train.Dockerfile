@@ -17,7 +17,7 @@ WORKDIR /app
 
 # Needed because LeRobot uses git-lfs.
 RUN apt-get update && apt-get install -y \
-    git git-lfs linux-headers-generic build-essential clang
+    git git-lfs linux-headers-generic build-essential clang ffmpeg
 
 # Environment setup for UV
 ENV UV_LINK_MODE=copy
@@ -42,6 +42,12 @@ RUN /.venv/bin/python -c "import transformers; print(transformers.__file__)" \
     | xargs dirname \
     | xargs -I{} cp -r /tmp/transformers_replace/* {} \
     && rm -rf /tmp/transformers_replace
+
+# Remove Python caches & pip/uv caches for deterministic tar
+RUN find /.venv -name '__pycache__' -type d -exec rm -rf {} + \
+    && rm -rf /.venv/lib/python*/site-packages/*.dist-info/*.egg-info \
+    && rm -rf /root/.cache/pip \
+    && rm -rf /root/.cache/uv
 
 # Stay as root inside to avoid permission hell on mounts
 USER root
