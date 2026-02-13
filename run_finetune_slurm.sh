@@ -22,7 +22,7 @@ PROJECT_ROOT=/mnt/home/$USER/checkout/openpi
 BASE_MODEL_DIR="/mnt/home/$USER/base_model"
 
 
-echo "1. Loading Docker Image from $IMAGE_PATH..."
+echo "1. Loading Docker Image..."
 # Must load image every time in rootless SLURM
 docker image load --input ~/openpi_finetune.tar.gz
 
