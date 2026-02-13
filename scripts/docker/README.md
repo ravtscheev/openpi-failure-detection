@@ -1,15 +1,15 @@
 # Docker Setup
 
-## Train Container
+## Fine-tune Container
 
 ### Build
 
 ```shell
-docker build --target training -t openpi_train -f scripts/docker/Dockerfile .
+docker build --target training -t openpi_finetune -f scripts/docker/Dockerfile .
 ```
 
 ```shell
-docker save openpi_train | gzip > openpi_train.tar.gz
+docker save openpi_finetune | gzip > openpi_train.tar.gz
 ```
 
 ### Run
