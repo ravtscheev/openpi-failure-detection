@@ -9,7 +9,7 @@ docker build --target training -t openpi_finetune -f scripts/docker/Dockerfile .
 ```
 
 ```shell
-docker save openpi_finetune | gzip > openpi_train.tar.gz
+docker save openpi_finetune | gzip > openpi_finetune.tar.gz
 ```
 
 ### Run
