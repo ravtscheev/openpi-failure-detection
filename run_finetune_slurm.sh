@@ -14,7 +14,6 @@
 # Paths (Update these!)
 TRAIN_CONFIG=pi0_ur5_merged_eef_50
 EXP_NAME="$TRAIN_CONFIG"
-DATASET_NAME="ravtscheev/merged-tasks-eef-eef"
 
 IMAGE_NAME="openpi_finetune:latest"
 WAND_KEY=""
@@ -32,9 +31,9 @@ echo "2. Starting Container..."
 # --network host is required
 # Run as root inside to map to your user outside
 
-docker run --rm \
-    --gpus all \
-    --network host \
+docker run --rm
+    --gpus all
+    --network host
     -v $PROJECT_ROOT:/app
     -v "$BASE_MODEL_DIR":/root/.cache/openpi
     -e TRAIN_CONFIG=$TRAIN_CONFIG
@@ -42,4 +41,4 @@ docker run --rm \
     -e SKIP_STATS=true
     -e TRAIN_ARGS=--overwrite
     -e WANDB_API_KEY=$WAND_KEY
-    $IMAGE\_NAME
+    $IMAGE_NAME
