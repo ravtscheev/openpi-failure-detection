@@ -7,4 +7,4 @@ fi
 
 # Train
 export XLA_PYTHON_CLIENT_MEM_FRACTION=0.9
-uv run /app/scripts/train.py $TRAIN_CONFIG --exp-name $EXP_NAME $TRAIN_ARGS || exit 1
+uv run /app/scripts/train.py $TRAIN_CONFIG --exp-name=$EXP_NAME $TRAIN_ARGS || exit 1
